@@ -1,0 +1,99 @@
+#!/usr/bin/python3
+#
+# Title       : teampass-changer
+# Date        : Wed Jun  6 11:20:44 CEST 2018
+# Author      : Jose Andres Arias Velichko <a.arias@.paislinux.es>
+# Version     : See bellow "_version_" line
+# Copyright   : 2018 Jose Andres Arias Velichko
+# License     : GNU GPL-2.0
+# Description : Uses different plugins to change the current password to a new one
+# Usage       : teampass-changer [-h|--help]
+#
+#  * This software is distributed in the hope that it will be useful,
+#  * but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#
+_version_ = '0.10.dev10'
+
+
+
+# Global Libraries
+import os
+import sys
+import pprint
+import argparse
+
+# My libraries: First we need to specify where to look
+my_dir_path = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(my_dir_path + '/lib')
+# And now we may import our libraries
+import teampass
+import pssh
+import tpplugins
+
+# Accepted Password Size
+def password_size(string):
+    value = int(string)
+    if ( (value < 6) or (value > 50) ):
+        msg = "%r must be in range 6 - 50" % string
+        raise argparse.ArgumentTypeError(msg)
+        return [string]
+
+# Parse command line args
+parser = argparse.ArgumentParser(description='Allows via plugins to change passwords from teampass.')
+parser.add_argument('--url', '-u', nargs=1, action='store', type=str, dest='url', metavar='teampas_url', 
+        default=['https://fuen-pass-1-dev.ftpcomputers.info/teampass'], help='Teampass URL to use')
+parser.add_argument('--password-size', '-s', nargs=1, action='store', type=password_size, dest='psize', 
+        metavar='size', default=['12'], help='an integer from 6 to 50')
+parser.add_argument('--password-insecure', '-i', action='store_const', const='0', default='1', dest='psecure',
+        help='Use insecure password (default=yes)')
+parser.add_argument('--password--no-capitals', '-c', action='store_const', const='0', default='1', dest='pcapitalize',
+        help='If should contain capital letters (default=yes)')
+parser.add_argument('--password--no-ambiguous', '-a', action='store_const', const='0', default='1', dest='pambiguous',
+        help='if password can contain ambiguous letters (default=yes)')
+parser.add_argument('--key', '-k', required=True, type=str, nargs=1, action='store', dest='key', metavar='api_key', help='Teampass API key to use')
+parser.add_argument('--folders', '-f', required=True, type=str, nargs=1, action='store', dest='folders', metavar='api_key', help='A semi-collon separated list of folders')
+parser.add_argument('--version', '-v', action='version', version='%(prog)s ' + _version_)
+args = parser.parse_args()
+# Password rules
+password_rules = ':'.join([args.psize[0],args.psecure,args.pcapitalize,args.pambiguous])
+
+# Initialize our TP connection
+tp = teampass.teampass(url=args.url[0],key=args.key[0])
+
+
+# Get a list of entries from specified folders
+try:
+    hosts_dict = tp.get_folders(args.folders[0])
+    host_new_pw = tp.get_new_pw()
+except teampass.BadTeampassResponse:
+    print ("Unable to connect to Teampass!")
+    sys.exit(2)
+
+for host in hosts_dict:
+    print ("{},{},{},".format(host[1],host[0],hosts_dict[host]["port"]), end='')
+    main_host_data = {}
+    additional_host_data = {}
+    main_host_data["host"] = host[0]
+    main_host_data["user"] = host[1]
+    main_host_data["newpw"] = tp.get_new_pw(password_rules=password_rules)
+    main_host_data.update(hosts_dict[host])
+    
+    if 'Additional_account' in hosts_dict[host]:
+        if (host[0],hosts_dict[host]['Additional_account']) in hosts_dict:
+            additional_host_data['host'] = host[0]
+            additional_host_data['user'] = hosts_dict[host]['Additional_account']
+            additional_host_data.update(hosts_dict[(host[0],hosts_dict[host]['Additional_account'])])
+        else:
+            sys.stderr.write('WARNING: Unable to process additional account {} for {}\n'.format(hosts_dict[host]['Additional_account'],host[0]))
+            continue
+
+    if 'Plugin' not in hosts_dict[host]:
+        hosts_dict[host]['Plugin'] = 'ssh'
+        hosts_dict[host]['Plugin_args'] = ''
+
+    tpplugins.plugins[hosts_dict[host]['Plugin']](main_host_data = main_host_data, additional_host_data = additional_host_data)
+
+    del main_host_data
+    del additional_host_data
+
