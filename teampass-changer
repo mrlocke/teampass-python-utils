@@ -13,7 +13,7 @@
 #  * but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #
-_version_ = '0.10.dev10'
+_version_ = '0.11.dev1'
 
 
 
@@ -65,7 +65,6 @@ tp = teampass.teampass(url=args.url[0],key=args.key[0])
 # Get a list of entries from specified folders
 try:
     hosts_dict = tp.get_folders(args.folders[0])
-    host_new_pw = tp.get_new_pw()
 except teampass.BadTeampassResponse:
     print ("Unable to connect to Teampass!")
     sys.exit(2)
@@ -92,8 +91,26 @@ for host in hosts_dict:
         hosts_dict[host]['Plugin'] = 'ssh'
         hosts_dict[host]['Plugin_args'] = ''
 
-    tpplugins.plugins[hosts_dict[host]['Plugin']](main_host_data = main_host_data, additional_host_data = additional_host_data)
+    # Change password with plugin
+    if tpplugins.plugins[hosts_dict[host]['Plugin']](main_host_data = main_host_data, additional_host_data = additional_host_data):
+        # Password changed successfully, update TP
+        if tp.update_pw(main_host_data) :
+            # Keep our hosts dict up to date
+            hosts_dict[host]['pw'] = main_host_data["newpw"]
+        else:
+            # If update in teampass failed, revert back
+            temp_pw = main_host_data["newpw"]
+            main_host_data["newpw"] = main_host_data["pw"]
+            main_host_data["pw"] = temp_pw
+            if tpplugins.plugins[hosts_dict[host]['Plugin']](main_host_data = main_host_data, additional_host_data = additional_host_data) :
+                sys.stderr.write('Warning: Unable to revert password change on {}@{}:\n\tUpdate reverted'.format(host[1],host[0]))
+            else:
+                sys.stderr.write('ERROR: Unable to revert password change on {}@{}:\n\tOld Pw: {}\n\tNew Pw: {}\n'.format(host[1],host[0],main_host_data["pw"],main_host_data["newpw"]))
+                sys.stderr.write('i\tPlease update teampass manually\n')
+                # Keep our hosts dict up to date
+                hosts_dict[host]['pw'] = main_host_data["newpw"]
 
+    # Keep our data clean
     del main_host_data
     del additional_host_data
 

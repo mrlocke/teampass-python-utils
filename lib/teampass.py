@@ -10,13 +10,14 @@
 #  * but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #
-_version_ = '0.10.dev10'
+_version_ = '0.11.dev1'
 
 import requests
 import re
 import pprint
 import json
 import sys
+import base64
 
 # My Error Class
 class BadTeampassResponse(Exception):
@@ -110,4 +111,49 @@ class teampass:
         else:
             raise BadTeampassResponse('Teampass server returned en error')
 
+    def read_item(self, item_id):
+        '''Obtains the item current configuration data'''
+        url = self.base_url + '/api/index.php/read/items/' + item_id + '?apikey=' + self.api_key
+        myResponse = requests.get(url,verify=True)
+        # Check the result
+        if(myResponse.ok):
+            self.__json_response = myResponse.json()
+            return myResponse.json()[0]
+        else:
+            raise BadTeampassResponse('Teampass server returned en error')
 
+    def update_pw(self, host_data):
+        '''Updates the teampass password based on the info in host data'''
+        item_data = self.read_item(host_data['id'])
+        #print("item_data")
+        #pprint.pprint (item_data)
+        item_data['label'] = base64.urlsafe_b64encode(item_data['label'].encode('ascii')).decode('ascii')
+        item_data['newpw'] = base64.urlsafe_b64encode(host_data['newpw'].encode('ascii')).decode('ascii')
+        item_data['description'] = base64.urlsafe_b64encode(item_data['description'].encode('ascii')).decode('ascii')
+        item_data['folder_id'] = base64.urlsafe_b64encode(item_data['folder_id'].encode('ascii')).decode('ascii')
+        item_data['login'] = base64.urlsafe_b64encode(item_data['login'].encode('ascii')).decode('ascii')
+        item_data['email'] = base64.urlsafe_b64encode(item_data['email'].encode('ascii')).decode('ascii')
+        item_data['url'] = base64.urlsafe_b64encode(item_data['url'].encode('ascii')).decode('ascii')
+        #print("item_data")
+        #pprint.pprint (dict(item_data))
+        url = (self.base_url + '/api/index.php/update/item/' + host_data['id'] + '/'
+                + item_data['label'] + ';' 
+                + item_data['newpw'] + ';' 
+                + item_data['description'] + ';' 
+                + item_data['folder_id'] + ';' 
+                + item_data['login'] + ';' 
+                + item_data['email'] + ';' 
+                + item_data['url'] + ';' 
+                + ';'
+                + '?apikey=' + self.api_key)
+        #print("URL: {}".format(url))
+        myResponse = requests.get(url,verify=True)
+        if(myResponse.ok):
+            if ( myResponse.json()['status'] == 'item updated'):
+                print("updated")
+                return True
+            else:
+                print(myResponse.json()['status'])
+                return False
+        else:
+            raise BadTeampassResponse('Teampass server returned en error')

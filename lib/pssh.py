@@ -10,7 +10,7 @@
 #  * but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #
-_version_ = '0.10.dev10'
+_version_ = '0.11.dev1'
 
 
 from pexpect import pxssh
@@ -66,11 +66,9 @@ class host:
         self.__connection.sendline('sudo -i')
         status = self.__connection.expect([pxssh.TIMEOUT,'password for','[\#\$] '])
         if status == 0:
-            sys.stderr.write('Estamos en 0')
             sys.stderr.flush()
             raise PsshSudoError('Sudo timeout')
         if status == 1:
-            sys.stderr.write('Estamos en 1')
             sys.stderr.flush()
             self.__connection.sendline(pw)
             status = self.__connection.expect([pxssh.TIMEOUT,'[\#\$] '])
@@ -78,12 +76,30 @@ class host:
                 raise PsshSudoError('Sudo wrong password')
             self.__connection.set_unique_prompt()
         if status == 2:
-            sys.stderr.write('Estamos en 2')
             sys.stderr.flush()
             self.__connection.set_unique_prompt()
         self.__connection.prompt()
         self.__connection.sendline('set +o history')
         self.__connection.prompt()
+
+    def passwd(self, pw, newpw):
+        '''Changes the passwords'''
+        self.__connection.sendline('passwd')
+        status = self.__connection.expect(['[Oo]ld [Pp]assword', '.current.*password', '[Nn]ew .*[Pp]assword'])
+        # Root does not require old password, so it gets to bypass the next step.
+        if status == 0 or status == 1:
+            self.__connection.sendline(pw)
+            self.__connection.expect('[Nn]ew .*[Pp]assword')
+        self.__connection.sendline(newpw)
+        status = self.__connection.expect(['[Nn]ew .*[Pp]assword', '[Rr]etype', '[Rr]e-enter'])
+        if status == 0:
+            self.__connection.send (chr(3)) # Ctrl-C
+            self.__connection.sendline('') # This should tell remote passwd command to quit.
+            self.__connection.prompt()
+            return False
+        self.__connection.sendline(newpw)
+        self.__connection.prompt()
+        return True
     
     def sudo_logout(self):
         self.__connection.sendline('logout')
@@ -98,13 +114,14 @@ def ssh_plugin(main_host_data, additional_host_data = {}):
                 user=main_host_data["user"],
                 port=main_host_data["port"],
                 pw=main_host_data["pw"])
-        myhost.host_info()
+        #myhost.host_info()
+        status = myhost.passwd(pw = main_host_data["pw"], newpw = main_host_data["newpw"])
         myhost.close()
         del myhost
     except PsshConnect:
-        print ("Connection error")
-
-    return False
+        sys.stderr.write('ERROR: Unable to establish connection as {}@{}\n'.format(additional_host_data["user"],additional_host_data["host"]))
+        return False
+    return status
 
 def ssh_sudo_plugin(main_host_data, additional_host_data = {}):
     '''Main function for ssh_sudo_plugin'''
@@ -114,11 +131,11 @@ def ssh_sudo_plugin(main_host_data, additional_host_data = {}):
                 port=additional_host_data["port"],
                 pw=additional_host_data["pw"])
         myhost.sudo(additional_host_data["pw"])
-        myhost.host_info()
+        status = myhost.passwd(pw = main_host_data["pw"], newpw = main_host_data["newpw"])
         myhost.sudo_logout()
         myhost.close()
         del myhost
     except PsshConnect:
-        print ("Connection error")
-
-    return False
+        sys.stderr.write('ERROR: Unable to establish connection as {}@{}\n'.format(additional_host_data["user"],additional_host_data["host"]))
+        return False
+    return status
